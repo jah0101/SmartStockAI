@@ -1,0 +1,430 @@
+{
+  "name": "SmartStockAI: Multi-Agent Inventory System",
+  "nodes": [
+    {
+      "parameters": {
+        "model": {
+          "__rl": true,
+          "value": "gpt-4o-mini",
+          "mode": "list",
+          "cachedResultName": "gpt-4o-mini"
+        },
+        "builtInTools": {},
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
+      "typeVersion": 1.3,
+      "position": [
+        1248,
+        112
+      ],
+      "id": "fa82810b-4eb5-4974-a16c-f0af14539238",
+      "name": "OpenAI Chat Model",
+      "credentials": {
+        "openAiApi": {
+          "id": "atIvLERf6HwYLj7X",
+          "name": "OpenAI account 2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "model": {
+          "__rl": true,
+          "value": "gpt-4o-mini",
+          "mode": "list",
+          "cachedResultName": "gpt-4o-mini"
+        },
+        "builtInTools": {},
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
+      "typeVersion": 1.3,
+      "position": [
+        432,
+        192
+      ],
+      "id": "6ee382c5-4b05-497e-86f5-b9f02e441f07",
+      "name": "OpenAI Chat Model1",
+      "credentials": {
+        "openAiApi": {
+          "id": "atIvLERf6HwYLj7X",
+          "name": "OpenAI account 2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=<Role>\nYou are a retail inventory decision assistant.\n</Role>\n\n<Task>\nAnalyze the inventory data and determine the correct action and whether it should be auto-approved or require manager review.\n</Task>\n\n<Inputs>\nItem Name: {{$json.item_name}}\nOn Hand: {{$json.on_hand}}\nMASC: {{$json.MASC}}\nWeekly Movement: {{$json.weekly_movement}}\nDays Since Last Delivery: {{$json.last_delivery_days_ago}}\nIs Ad Item: {{$json.is_ad_item}}\nHas Endcap: {{$json.has_endcap}}\nShelf Capacity: {{$json.shelf_capacity}}\nFacings: {{$json.facings}}\n</Inputs>\n\n<Rules>\n1. Always evaluate rules in order.\n2. Once a rule determines both the Decision and Approval, stop and do not evaluate any remaining rules.\n\n3. First, calculate Adjusted Movement:\n   - If Is Ad Item = true AND Has Endcap = true:\n       Adjusted Movement = Weekly Movement * 3\n   - Else if Is Ad Item = true:\n       Adjusted Movement = Weekly Movement * 2\n   - Else:\n       Adjusted Movement = Weekly Movement\n\n4. Then calculate Restock Threshold:\n   - Restock Threshold = MASC + Adjusted Movement\n\n5. If On Hand <= MASC:\n   - Decision: RESTOCK NOW\n   - If Days Since Last Delivery > 3:\n       Approval: AUTO-APPROVE\n   - Else:\n       Approval: MANAGER REVIEW\n   - Stop.\nImportant for Rule 5:\n  - If Days Since Last Delivery is 4 or more, Approval must be AUTO-APPROVE.\n  - If Days Since Last Delivery is 3 or less, Approval must be MANAGER REVIEW.\n  - Example: On Hand 0, MASC 3, Days Since Last Delivery 5 = RESTOCK NOW, AUTO-APPROVE, Reason 5.\n  - Example: On Hand 0, MASC 3, Days Since Last Delivery 1 = RESTOCK NOW, MANAGER REVIEW, Reason 5.\n\n6. If Is Ad Item = true:\n   - If On Hand <= Restock Threshold:\n       Decision: RESTOCK NOW\n       Approval: AUTO-APPROVE\n       Stop.\n   - If On Hand > Restock Threshold:\n       Decision: MONITOR\n       Approval: AUTO-APPROVE\n       Stop.\n\n7. If Has Endcap = true AND Weekly Movement > 8:\n   - Decision: MONITOR\n   - Approval: AUTO-APPROVE\n   - Stop.\n\n8. If data is inconsistent, missing, or unusual:\n   - Decision: MONITOR\n   - Approval: MANAGER REVIEW\n   - Stop.\n\n9. If inventory is stable and On Hand is well above MASC:\n   - Decision: NO ACTION\n   - Approval: AUTO-APPROVE\n   - Stop.\n\n10. Perform all calculations and comparisons exactly as written.\n    - Do not estimate or reinterpret values.\n    - Always calculate Adjusted Movement and Restock Threshold exactly when required.\n\n11. Only use the provided inputs. Do not assume additional data.\n\n12. Keep reasoning short and directly tied to the rule that determined the final decision.\n</Rules>\n\n<Output Format>\nReturn ONLY the final answer.\nDo not show calculations.\nDo not show steps.\nDo not explain the evaluation process.\n\nDecision: [RESTOCK NOW / MONITOR / NO ACTION]\nApproval: [AUTO-APPROVE / MANAGER REVIEW]\nReason: [rule number only]\n</Output Format>",
+        "batching": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.chainLlm",
+      "typeVersion": 1.9,
+      "position": [
+        1248,
+        -64
+      ],
+      "id": "b175e392-8ecb-46bd-8a03-57570c87374c",
+      "name": "Replenishment Decision Agent"
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=<Role>\nYou are a retail count exception validation assistant.\n</Role>\n\n<Task>\nAnalyze the system count and recounted count for an inventory item and determine whether the count adjustment should continue in the workflow or stop for another recount.\n</Task>\n\n<Inputs>\nItem Name: {{$json.item_name}}\nSystem Count: {{$json.system_count}}\nRecounted Count: {{$json.recounted_count}}\n</Inputs>\n\n<Rules>\n1. Always evaluate rules in order.\n2. Once a rule determines both the Exception and Next Step, stop and do not evaluate any remaining rules.\n3. Use only the provided inputs.\n4. Do not assume or infer additional data.\n5. Perform all calculations exactly as written.\n\n6. First calculate Count Difference:\n   - Count Difference = absolute value of (System Count - Recounted Count)\n\n7. Apply the following rules in order:\n\n   Rule 4:\n   - If System Count <= 3 AND Recounted Count = 0\n   - Exception: VALID\n   - Next Step: CONTINUE\n   - Stop.\n\n   Rule 5:\n   - If System Count < 0 AND Recounted Count >= 0\n   - Exception: VALID\n   - Next Step: CONTINUE\n   - Stop.\n\n   Rule 6:\n   - If Count Difference <= 3\n   - Exception: VALID\n   - Next Step: CONTINUE\n   - Stop.\n\n   Rule 7:\n   - If Count Difference > 3\n   - Exception: SUSPICIOUS\n   - Next Step: STOP\n   - Stop.\n\n8. Important:\n   - A difference of 0, 1, 2, or 3 is within tolerance.\n   - A difference greater than 3 is suspicious.\n   - Example: System Count 23 and Recounted Count 25 has Count Difference 2, so it must return VALID and CONTINUE under Rule 6.\n\n9. Return only the final result.\n</Rules>\n\n<Output Format>\nReturn ONLY the final answer.\nDo not show calculations.\nDo not show steps.\nDo not explain the evaluation process.\n\nException: [VALID / SUSPICIOUS]\nNext Step: [CONTINUE / STOP]\nReason: [rule number only]\n</Output Format>",
+        "batching": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.chainLlm",
+      "typeVersion": 1.9,
+      "position": [
+        432,
+        16
+      ],
+      "id": "8fd028c1-d047-4c89-9487-634bb1318e28",
+      "name": "Count Exception Review Agent"
+    },
+    {
+      "parameters": {
+        "model": {
+          "__rl": true,
+          "value": "gpt-4o-mini",
+          "mode": "list",
+          "cachedResultName": "gpt-4o-mini"
+        },
+        "builtInTools": {},
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
+      "typeVersion": 1.3,
+      "position": [
+        1840,
+        128
+      ],
+      "id": "8992b136-5995-42b5-b84e-5d5a689a3a01",
+      "name": "OpenAI Chat Model3",
+      "credentials": {
+        "openAiApi": {
+          "id": "atIvLERf6HwYLj7X",
+          "name": "OpenAI account 2"
+        }
+      }
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        -80,
+        16
+      ],
+      "id": "fe679d51-c1f7-45c7-870b-bec321422948",
+      "name": "Workflow Trigger"
+    },
+    {
+      "parameters": {
+        "language": "pythonNative",
+        "pythonCode": "return [\n    {\n        \"json\": {\n            \"item_name\": \"Frosted Flakes 12oz\",\n            \"system_count\": 3,\n            \"recounted_count\": 0,\n            \"on_hand\": 3,\n            \"MASC\": 3,\n            \"weekly_movement\": 9.75,\n            \"last_delivery_days_ago\": 5,\n            \"is_ad_item\": True,\n            \"has_endcap\": True,\n            \"shelf_capacity\": 24,\n            \"facings\": 3\n        }\n    },\n    {\n        \"json\": {\n            \"item_name\": \"Honey Nut Cheerios 18.8oz\",\n            \"system_count\": 23,\n            \"recounted_count\": 25,\n            \"on_hand\": 23,\n            \"MASC\": 4,\n            \"weekly_movement\": 5.25,\n            \"last_delivery_days_ago\": 4,\n            \"is_ad_item\": False,\n            \"has_endcap\": False,\n            \"shelf_capacity\": 40,\n            \"facings\": 4\n        }\n    },\n    {\n        \"json\": {\n            \"item_name\": \"Starbucks Coffee 10oz\",\n            \"system_count\": 23,\n            \"recounted_count\": 27,\n            \"on_hand\": 23,\n            \"MASC\": 6,\n            \"weekly_movement\": 4.5,\n            \"last_delivery_days_ago\": 3,\n            \"is_ad_item\": True,\n            \"has_endcap\": False,\n            \"shelf_capacity\": 18,\n            \"facings\": 2\n        }\n    },\n    {\n        \"json\": {\n            \"item_name\": \"Rice Krispies 12oz\",\n            \"system_count\": -2,\n            \"recounted_count\": 1,\n            \"on_hand\": -2,\n            \"MASC\": 3,\n            \"weekly_movement\": 10.5,\n            \"last_delivery_days_ago\": 4,\n            \"is_ad_item\": True,\n            \"has_endcap\": True,\n            \"shelf_capacity\": 20,\n            \"facings\": 2\n        }\n    },\n    {\n        \"json\": {\n            \"item_name\": \"General Mills Cereal 10oz\",\n            \"system_count\": -2,\n            \"recounted_count\": 0,\n            \"on_hand\": -2,\n            \"MASC\": 3,\n            \"weekly_movement\": 5,\n            \"last_delivery_days_ago\": 1,\n            \"is_ad_item\": False,\n            \"has_endcap\": False,\n            \"shelf_capacity\": 16,\n            \"facings\": 2\n        }\n    }\n]"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        192,
+        16
+      ],
+      "id": "e227f83e-7453-4fb1-bedd-2a3af012add2",
+      "name": "Inventory Data Generator"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "696c6e07-4145-4612-9c06-d8b42080802e",
+              "leftValue": "={{ $json.text }}",
+              "rightValue": "CONTINUE",
+              "operator": {
+                "type": "string",
+                "operation": "contains"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        784,
+        16
+      ],
+      "id": "5c0dd4c7-e45c-4caa-b199-5018700d8606",
+      "name": "Exception Filter (Continue vs. Stop)"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "5de7782b-2e6d-482a-aa66-8d50e9e75272",
+              "name": "on_hand",
+              "value": "={{ $('Inventory Data Generator').item.json.recounted_count }}",
+              "type": "number"
+            },
+            {
+              "id": "72bb8a9f-5917-402c-ba3b-4935b062ff77",
+              "name": "item_name",
+              "value": "={{ $('Inventory Data Generator').item.json.item_name }}",
+              "type": "string"
+            },
+            {
+              "id": "c3befdde-bb0f-41dd-bf84-fdafbcac7524",
+              "name": "MASC",
+              "value": "={{ $('Inventory Data Generator').item.json.MASC }}",
+              "type": "number"
+            },
+            {
+              "id": "810eb7ee-fbbd-4401-9fc4-7387ad2fbeb6",
+              "name": "weekly_movment",
+              "value": "={{ $('Inventory Data Generator').item.json.weekly_movement }}",
+              "type": "number"
+            },
+            {
+              "id": "d423e5eb-1ece-4736-b0be-2ff420cf627b",
+              "name": "last_delivery_days_ago",
+              "value": "={{ $('Inventory Data Generator').item.json.last_delivery_days_ago }}",
+              "type": "number"
+            },
+            {
+              "id": "356156bb-2c16-4af3-9bdb-4d6af0bbbcc6",
+              "name": "is_ad_item",
+              "value": "={{ $('Inventory Data Generator').item.json.is_ad_item }}",
+              "type": "boolean"
+            },
+            {
+              "id": "5a9ff76e-90f7-44ba-930e-ed88bcda92c2",
+              "name": "has_endcap",
+              "value": "={{ $('Inventory Data Generator').item.json.has_endcap }}",
+              "type": "boolean"
+            },
+            {
+              "id": "bc0bd4a3-836a-49ef-b048-7825a4006932",
+              "name": "shelf_capacity",
+              "value": "={{ $('Inventory Data Generator').item.json.shelf_capacity }}",
+              "type": "number"
+            },
+            {
+              "id": "a5f79a79-1f5a-47b6-8b47-c9f902fb5a2e",
+              "name": "facings",
+              "value": "={{ $('Inventory Data Generator').item.json.facings }}",
+              "type": "number"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        1040,
+        -64
+      ],
+      "id": "7a56639e-43ac-4368-88b6-4eac183d311c",
+      "name": "Prepare Data For Replenishment"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "88281dfb-760a-4b1e-a13f-76eec1e223d1",
+              "name": "item_name",
+              "value": "={{ $('Inventory Data Generator').item.json.item_name }}",
+              "type": "string"
+            },
+            {
+              "id": "09bfa06e-363d-474a-9000-966814cff35c",
+              "name": "on_hand",
+              "value": "={{ $('Inventory Data Generator').item.json.recounted_count }}",
+              "type": "number"
+            },
+            {
+              "id": "ac459bd5-4f82-49cd-86ac-6d1855e788f7",
+              "name": "MASC",
+              "value": "={{ $('Inventory Data Generator').item.json.MASC }}",
+              "type": "number"
+            },
+            {
+              "id": "e00fa0be-e0ad-4dbd-b596-6e0e3a3c1dea",
+              "name": "last_delivery_days_ago",
+              "value": "={{ $('Inventory Data Generator').item.json.last_delivery_days_ago }}",
+              "type": "number"
+            },
+            {
+              "id": "4e8f8b7a-1e0b-4339-8b3c-82244024f0b9",
+              "name": "decision_output",
+              "value": "={{ $json.text }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        1600,
+        -64
+      ],
+      "id": "c9d80023-6f21-4401-969f-4bf431d4cc65",
+      "name": "Prepare Data For Manager Summary"
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=<Role>\nYou are a retail operations assistant providing clear summaries for store managers.\n</Role>\n\n<Task>\nSummarize the inventory decision in 2–3 concise sentences using the provided data.\n</Task>\n\n<Inputs>\nItem Name: {{$json.item_name}}\nOn Hand: {{$json.on_hand}}\nMASC: {{$json.MASC}}\nDays Since Last Delivery: {{$json.last_delivery_days_ago}}\nDecision Output: {{$json.decision_output}}\n</Inputs>\n\n<Rules>\n1. Write in plain English, not technical terms.\n2. Keep the summary short (2–3 sentences maximum).\n3. Clearly explain:\n   - Current inventory status (above or below minimum level)\n   - Delivery timing (when relevant)\n   - Recommended action\n\n4. Determine inventory status:\n   - If On Hand <= MASC, describe inventory as below the minimum level.\n   - If On Hand > MASC, describe inventory as sufficient or above the minimum level.\n\n5. Determine delivery timing:\n   - If Days Since Last Delivery > 3, you MUST say \"more than three days ago\".\n   - If Days Since Last Delivery <= 3, you MUST say \"recent\".\n   - Do NOT include the exact number of days.\n   - Do NOT use both \"recent\" and a number together.\n\n6. Delivery timing rules:\n   - If Decision Output contains \"NO ACTION\", you MUST NOT mention delivery timing.\n   - If Decision Output contains \"RESTOCK NOW\", you MUST include delivery timing.\n\n7. Decision Output is the source of truth and must be followed exactly.\n\n8. You MUST follow the Decision Output exactly:\n   - If Decision Output contains \"RESTOCK NOW\", you MUST recommend restocking.\n   - If Decision Output contains \"NO ACTION\", you MUST state that no action is required.\n   - If Decision Output contains \"MONITOR\", you MUST recommend monitoring.\n   - Do NOT introduce a different action than what is in the Decision Output.\n\n9. Match the approval:\n   - If Decision Output contains \"AUTO-APPROVE\", state that it can be auto-approved.\n   - If Decision Output contains \"MANAGER REVIEW\", state that manager review is required.\n\n10. Do not mention rule numbers or system logic explicitly.\n11. Do not repeat raw data or field names.\n12. Do not assume all items are low. Use the actual values provided.\n</Rules>\n\n<Output Format>\nManager Summary: [2–3 sentence explanation]\n</Output Format>",
+        "batching": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.chainLlm",
+      "typeVersion": 1.9,
+      "position": [
+        1840,
+        -64
+      ],
+      "id": "d56bdce1-0b78-4a48-87e7-d8c76bb47d57",
+      "name": "Manager Summary Agent"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "OpenAI Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Replenishment Decision Agent",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenAI Chat Model1": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Count Exception Review Agent",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Replenishment Decision Agent": {
+      "main": [
+        [
+          {
+            "node": "Prepare Data For Manager Summary",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Count Exception Review Agent": {
+      "main": [
+        [
+          {
+            "node": "Exception Filter (Continue vs. Stop)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenAI Chat Model3": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Manager Summary Agent",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Workflow Trigger": {
+      "main": [
+        [
+          {
+            "node": "Inventory Data Generator",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Inventory Data Generator": {
+      "main": [
+        [
+          {
+            "node": "Count Exception Review Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Exception Filter (Continue vs. Stop)": {
+      "main": [
+        [
+          {
+            "node": "Prepare Data For Replenishment",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Data For Replenishment": {
+      "main": [
+        [
+          {
+            "node": "Replenishment Decision Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Data For Manager Summary": {
+      "main": [
+        [
+          {
+            "node": "Manager Summary Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": false
+  },
+  "versionId": "b0eb0605-50e8-43b2-90b8-a85c74739f83",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "d358b5f3503c109344c54afa97f742b1d739baf6e8774895605bea4122dc6fa2"
+  },
+  "id": "Uw1qFRr3lWTDZCtQ",
+  "tags": []
+}
